@@ -19,7 +19,8 @@ router.post("/", async (req, res) => {
   try {
     await resend.emails.send({
       from: "All Government Alerts <onboarding@resend.dev>",
-      to: ["all.government.alerts@gmail.com"],
+      // to: ["all.government.alerts@gmail.com"],
+      to: ["karthikarthi28525@gmail.com"],
       reply_to: email,
       subject: subject || "New Contact Message",
       html: `
