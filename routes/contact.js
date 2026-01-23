@@ -1,7 +1,8 @@
 import express from "express";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const router = express.Router();
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * POST /api/contact
@@ -9,7 +10,6 @@ const router = express.Router();
 router.post("/", async (req, res) => {
   const { name, email, subject, message } = req.body;
 
-  // Basic validation
   if (!name || !email || !message) {
     return res.status(400).json({
       message: "Missing required fields",
@@ -17,23 +17,16 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `"All Government Alerts" <${process.env.EMAIL_USER}>`,
-      to: process.env.EMAIL_USER,
-      replyTo: email,
-      subject: subject || "New Contact Form Submission",
+    await resend.emails.send({
+      from: "All Government Alerts <onboarding@resend.dev>",
+      to: ["all.government.alerts@gmail.com"],
+      reply_to: email,
+      subject: subject || "New Contact Message",
       html: `
         <h3>New Contact Message</h3>
         <p><strong>Name:</strong> ${name}</p>
         <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Subject:</strong> ${subject || "-"}</p>
         <p><strong>Message:</strong></p>
         <p>${message}</p>
       `,
@@ -43,7 +36,7 @@ router.post("/", async (req, res) => {
       message: "Message sent successfully",
     });
   } catch (error) {
-    console.error("❌ Contact email error:", error);
+    console.error("❌ Resend error:", error);
     return res.status(500).json({
       message: "Failed to send message",
     });
