@@ -1,63 +1,71 @@
 import express from 'express';
 import pool from '../config/database.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import { randomUUID } from 'crypto';
 
 const router = express.Router();
 
-// Get all jobs (with optional category filter)
+/**
+ * Get all jobs (optional category filter)
+ */
 router.get('/', async (req, res) => {
   try {
     const { category_id, category_slug } = req.query;
+
     let query = 'SELECT * FROM jobs';
-    let params = [];
-    
+    const params = [];
+
     if (category_id) {
-      query += ' WHERE category_id = ?';
+      query += ' WHERE category_id = $1';
       params.push(category_id);
     } else if (category_slug) {
-      // First get category id from slug
-      const [categories] = await pool.execute(
-        'SELECT id FROM categories WHERE slug = ?',
+      const categoryResult = await pool.query(
+        'SELECT id FROM categories WHERE slug = $1',
         [category_slug]
       );
-      
-      if (categories.length > 0) {
-        query += ' WHERE category_id = ?';
-        params.push(categories[0].id);
+
+      if (categoryResult.rows.length > 0) {
+        query += ' WHERE category_id = $1';
+        params.push(categoryResult.rows[0].id);
       }
     }
-    
+
     query += ' ORDER BY created_at DESC';
-    
-    const [jobs] = await pool.execute(query, params);
-    res.json(jobs);
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
   } catch (error) {
     console.error('Error fetching jobs:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get single job by id
+/**
+ * Get single job by id
+ */
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const [jobs] = await pool.execute(
-      'SELECT * FROM jobs WHERE id = ?',
+
+    const { rows } = await pool.query(
+      'SELECT * FROM jobs WHERE id = $1',
       [id]
     );
-    
-    if (jobs.length === 0) {
+
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
-    res.json(jobs[0]);
+
+    res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching job:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Create job (admin only)
+/**
+ * Create job (admin only)
+ */
 router.post('/', authenticateAdmin, async (req, res) => {
   try {
     const {
@@ -71,32 +79,31 @@ router.post('/', authenticateAdmin, async (req, res) => {
       notification_url,
       apply_url
     } = req.body;
-    
-    // Validate required fields
+
     if (!category_id || !organization || !post_name) {
-      return res.status(400).json({ 
-        error: 'Category, organization, and post name are required' 
+      return res.status(400).json({
+        error: 'Category, organization, and post name are required'
       });
     }
-    
+
     // Verify category exists
-    const [categories] = await pool.execute(
-      'SELECT id FROM categories WHERE id = ?',
+    const categoryCheck = await pool.query(
+      'SELECT id FROM categories WHERE id = $1',
       [category_id]
     );
-    
-    if (categories.length === 0) {
+
+    if (categoryCheck.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid category' });
     }
-    
-    const { randomUUID } = await import('crypto');
+
     const id = randomUUID();
-    
-    await pool.execute(
+
+    const insertResult = await pool.query(
       `INSERT INTO jobs (
         id, category_id, organization, post_name, vacancies, qualification,
         last_date, full_details_url, notification_url, apply_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      RETURNING *`,
       [
         id,
         category_id,
@@ -110,20 +117,17 @@ router.post('/', authenticateAdmin, async (req, res) => {
         apply_url || null
       ]
     );
-    
-    const [newJob] = await pool.execute(
-      'SELECT * FROM jobs WHERE id = ?',
-      [id]
-    );
-    
-    res.status(201).json(newJob[0]);
+
+    res.status(201).json(insertResult.rows[0]);
   } catch (error) {
     console.error('Error creating job:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Update job (admin only)
+/**
+ * Update job (admin only)
+ */
 router.put('/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -138,13 +142,20 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
       notification_url,
       apply_url
     } = req.body;
-    
-    const [result] = await pool.execute(
+
+    const result = await pool.query(
       `UPDATE jobs SET
-        category_id = ?, organization = ?, post_name = ?, vacancies = ?,
-        qualification = ?, last_date = ?, full_details_url = ?,
-        notification_url = ?, apply_url = ?
-      WHERE id = ?`,
+        category_id = $1,
+        organization = $2,
+        post_name = $3,
+        vacancies = $4,
+        qualification = $5,
+        last_date = $6,
+        full_details_url = $7,
+        notification_url = $8,
+        apply_url = $9
+      WHERE id = $10
+      RETURNING *`,
       [
         category_id,
         organization,
@@ -158,37 +169,34 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
         id
       ]
     );
-    
-    if (result.affectedRows === 0) {
+
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
-    const [updatedJob] = await pool.execute(
-      'SELECT * FROM jobs WHERE id = ?',
-      [id]
-    );
-    
-    res.json(updatedJob[0]);
+
+    res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating job:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Delete job (admin only)
+/**
+ * Delete job (admin only)
+ */
 router.delete('/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    
-    const [result] = await pool.execute(
-      'DELETE FROM jobs WHERE id = ?',
+
+    const result = await pool.query(
+      'DELETE FROM jobs WHERE id = $1 RETURNING id',
       [id]
     );
-    
-    if (result.affectedRows === 0) {
+
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
+
     res.json({ success: true, message: 'Job deleted successfully' });
   } catch (error) {
     console.error('Error deleting job:', error);
@@ -197,4 +205,3 @@ router.delete('/:id', authenticateAdmin, async (req, res) => {
 });
 
 export default router;
-
