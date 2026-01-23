@@ -11,6 +11,8 @@ import admitCardsRoutes from './routes/admitCards.js';
 import syllabusRoutes from './routes/syllabus.js';
 import previousPapersRoutes from './routes/previousPapers.js';
 import materialsRoutes from './routes/materials.js';
+import contactRoutes from './routes/contact.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +44,7 @@ app.use('/api/admit-cards', admitCardsRoutes);
 app.use('/api/syllabus', syllabusRoutes);
 app.use('/api/previous-papers', previousPapersRoutes);
 app.use('/api/materials', materialsRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
