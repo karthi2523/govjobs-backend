@@ -1,134 +1,146 @@
 import express from 'express';
 import pool from '../config/database.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import { randomUUID } from 'crypto';
 
 const router = express.Router();
 
-// Helper function to ensure syllabus table exists
-async function ensureTable() {
-  try {
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS syllabus (
-        id VARCHAR(36) PRIMARY KEY,
-        exam_name VARCHAR(255) NOT NULL,
-        organization VARCHAR(255) NOT NULL,
-        download_url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  } catch (err) {
-    console.error('Error ensuring syllabus table exists:', err);
-  }
-}
-
-// Get all syllabus
+/**
+ * Get all syllabus (public)
+ */
 router.get('/', async (req, res) => {
   try {
-    await ensureTable();
-    const [syllabus] = await pool.execute(
+    const { rows } = await pool.query(
       'SELECT * FROM syllabus ORDER BY created_at DESC'
     );
-    res.json(syllabus);
+    res.json(rows);
   } catch (error) {
     console.error('Error fetching syllabus:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Get single syllabus by id
+/**
+ * Get single syllabus by id (public)
+ */
 router.get('/:id', async (req, res) => {
   try {
-    await ensureTable();
     const { id } = req.params;
-    const [syllabus] = await pool.execute('SELECT * FROM syllabus WHERE id = ?', [id]);
-    
-    if (syllabus.length === 0) {
+
+    const { rows } = await pool.query(
+      'SELECT * FROM syllabus WHERE id = $1',
+      [id]
+    );
+
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Syllabus not found' });
     }
-    
-    res.json(syllabus[0]);
+
+    res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching syllabus:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Create syllabus (admin only)
+/**
+ * Create syllabus (admin only)
+ */
 router.post('/', authenticateAdmin, async (req, res) => {
   try {
-    await ensureTable();
     const { exam_name, organization, download_url } = req.body;
-    
+
     if (!exam_name || !organization) {
-      return res.status(400).json({ 
-        error: 'Exam name and organization are required' 
+      return res.status(400).json({
+        error: 'Exam name and organization are required'
       });
     }
-    
-    const { randomUUID } = await import('crypto');
+
     const id = randomUUID();
-    
-    await pool.execute(
-      `INSERT INTO syllabus (id, exam_name, organization, download_url)
-       VALUES (?, ?, ?, ?)`,
+
+    const { rows } = await pool.query(
+      `INSERT INTO syllabus (
+        id, exam_name, organization, download_url
+      ) VALUES ($1,$2,$3,$4)
+      RETURNING *`,
       [id, exam_name, organization, download_url || null]
     );
-    
-    const [newSyllabus] = await pool.execute('SELECT * FROM syllabus WHERE id = ?', [id]);
-    res.status(201).json(newSyllabus[0]);
+
+    res.status(201).json(rows[0]);
   } catch (error) {
     console.error('Error creating syllabus:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Update syllabus (admin only)
+/**
+ * Update syllabus (admin only)
+ */
 router.put('/:id', authenticateAdmin, async (req, res) => {
   try {
-    await ensureTable();
     const { id } = req.params;
     const { exam_name, organization, download_url } = req.body;
-    
-    const updates = [];
+
+    const fields = [];
     const values = [];
-    
-    if (exam_name !== undefined) { updates.push('exam_name = ?'); values.push(exam_name); }
-    if (organization !== undefined) { updates.push('organization = ?'); values.push(organization); }
-    if (download_url !== undefined) { updates.push('download_url = ?'); values.push(download_url); }
-    
-    if (updates.length === 0) {
+    let index = 1;
+
+    if (exam_name !== undefined) {
+      fields.push(`exam_name = $${index++}`);
+      values.push(exam_name);
+    }
+
+    if (organization !== undefined) {
+      fields.push(`organization = $${index++}`);
+      values.push(organization);
+    }
+
+    if (download_url !== undefined) {
+      fields.push(`download_url = $${index++}`);
+      values.push(download_url);
+    }
+
+    if (fields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
-    
+
     values.push(id);
-    const [result] = await pool.execute(
-      `UPDATE syllabus SET ${updates.join(', ')} WHERE id = ?`,
+
+    const { rows, rowCount } = await pool.query(
+      `UPDATE syllabus
+       SET ${fields.join(', ')}
+       WHERE id = $${index}
+       RETURNING *`,
       values
     );
-    
-    if (result.affectedRows === 0) {
+
+    if (rowCount === 0) {
       return res.status(404).json({ error: 'Syllabus not found' });
     }
-    
-    const [updatedSyllabus] = await pool.execute('SELECT * FROM syllabus WHERE id = ?', [id]);
-    res.json(updatedSyllabus[0]);
+
+    res.json(rows[0]);
   } catch (error) {
     console.error('Error updating syllabus:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Delete syllabus (admin only)
+/**
+ * Delete syllabus (admin only)
+ */
 router.delete('/:id', authenticateAdmin, async (req, res) => {
   try {
-    await ensureTable();
     const { id } = req.params;
-    const [result] = await pool.execute('DELETE FROM syllabus WHERE id = ?', [id]);
-    
-    if (result.affectedRows === 0) {
+
+    const result = await pool.query(
+      'DELETE FROM syllabus WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Syllabus not found' });
     }
-    
+
     res.json({ success: true, message: 'Syllabus deleted successfully' });
   } catch (error) {
     console.error('Error deleting syllabus:', error);
